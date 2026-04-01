@@ -18,20 +18,15 @@ def index():
     return redirect(url_for('login'))
 
 
-@app.route('/auth/login', methods=['GET', 'POST'])
+@app.route('/auth/login')
 def login():
-    if request.method == 'POST':
-        subdomain = request.form.get('subdomain', '').strip() or kommo.subdomain
-        if not subdomain:
-            flash('Informe o subdominio da sua conta Kommo.', 'warning')
-            return redirect(url_for('login'))
-        auth_url, state, sub = kommo.get_authorization_url(subdomain)
-        session['oauth_state'] = state
-        session['oauth_subdomain'] = sub
-        return redirect(auth_url)
-
-    has_subdomain = bool(kommo.subdomain)
-    return render_template('login.html', authenticated=False, has_subdomain=has_subdomain)
+    auth_url = (
+        f"https://www.kommo.com/oauth"
+        f"?client_id={kommo.client_id}"
+        f"&state=kommo_auth"
+        f"&mode=post_message"
+    )
+    return render_template('login.html', authenticated=False, auth_url=auth_url)
 
 
 @app.route('/auth/callback')
@@ -41,7 +36,7 @@ def callback():
         flash('Codigo de autorizacao nao recebido.', 'danger')
         return redirect(url_for('login'))
 
-    subdomain = session.get('oauth_subdomain', kommo.subdomain)
+    subdomain = request.args.get('referer', kommo.subdomain)
     try:
         kommo.exchange_code(code, subdomain=subdomain)
         flash('Conectado com sucesso ao Kommo CRM!', 'success')
