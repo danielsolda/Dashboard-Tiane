@@ -37,7 +37,7 @@ class KommoClient:
         sub = subdomain or self.subdomain
         state = secrets.token_urlsafe(16)
         url = (
-            f"https://{sub}.kommo.com/oauth"
+            f"https://www.kommo.com/oauth"
             f"?client_id={self.client_id}"
             f"&state={state}"
             f"&mode=post_message"
