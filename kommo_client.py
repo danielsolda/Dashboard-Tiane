@@ -6,11 +6,23 @@ from token_storage import TokenStorage
 
 class KommoClient:
     def __init__(self, token_storage=None):
-        self.client_id = os.environ.get('KOMMO_CLIENT_ID', '')
-        self.client_secret = os.environ.get('KOMMO_CLIENT_SECRET', '')
-        self.redirect_uri = os.environ.get('KOMMO_REDIRECT_URI', '')
-        self.subdomain = os.environ.get('KOMMO_SUBDOMAIN', '')
         self.storage = token_storage or TokenStorage()
+
+    @property
+    def client_id(self):
+        return os.environ.get('KOMMO_CLIENT_ID', '')
+
+    @property
+    def client_secret(self):
+        return os.environ.get('KOMMO_CLIENT_SECRET', '')
+
+    @property
+    def redirect_uri(self):
+        return os.environ.get('KOMMO_REDIRECT_URI', '')
+
+    @property
+    def subdomain(self):
+        return os.environ.get('KOMMO_SUBDOMAIN', '')
 
     def _base_url(self, subdomain=None):
         sub = subdomain or self.subdomain
