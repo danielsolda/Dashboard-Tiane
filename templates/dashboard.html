@@ -1,11 +1,84 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 
+{% block extra_css %}
+<style>
+    .filter-bar {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        padding: 1rem 1.5rem;
+    }
+    .filter-bar label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.25rem;
+    }
+    .filter-bar .form-select, .filter-bar .form-control {
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="fw-bold mb-0">Analise Comercial</h4>
     <span class="text-muted"><i class="bi bi-person-circle"></i> {{ account_name }}</span>
 </div>
+
+<!-- Filtro Global -->
+<form method="get" action="{{ url_for('dashboard') }}" class="filter-bar mb-4">
+    <div class="row g-3 align-items-end">
+        <div class="col-md-2">
+            <label for="pipeline">Funil</label>
+            <select name="pipeline" id="pipeline" class="form-select form-select-sm">
+                <option value="">Todos os Funis</option>
+                {% for p in pipeline_options %}
+                <option value="{{ p.id }}" {% if f_pipeline == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="statuses">Etapas</label>
+            <select name="statuses" id="statuses" class="form-select form-select-sm" multiple size="1">
+                {% for s in status_options %}
+                <option value="{{ s.id }}" {% if s.id|string in f_statuses %}selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="period_type">Periodo por</label>
+            <select name="period_type" id="period_type" class="form-select form-select-sm">
+                <option value="created" {% if f_period_type == 'created' %}selected{% endif %}>Criados</option>
+                <option value="closed" {% if f_period_type == 'closed' %}selected{% endif %}>Fechados</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="date_from">De</label>
+            <input type="date" name="date_from" id="date_from" class="form-control form-control-sm"
+                   value="{{ f_date_from }}">
+        </div>
+        <div class="col-md-2">
+            <label for="date_to">Ate</label>
+            <input type="date" name="date_to" id="date_to" class="form-control form-control-sm"
+                   value="{{ f_date_to }}">
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+                <i class="bi bi-funnel"></i> Filtrar
+            </button>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-x-lg"></i>
+            </a>
+        </div>
+    </div>
+    <div id="closed-hint" class="mt-2 text-muted small" style="display: none;">
+        <i class="bi bi-info-circle"></i> Periodo "Fechados" filtra apenas leads com Venda Ganha ou Venda Perdida.
+    </div>
+</form>
 
 <!-- KPIs -->
 <div class="row g-4 mb-4">
@@ -70,7 +143,7 @@
 <!-- Leads recentes -->
 <div class="card chart-card">
     <div class="card-body">
-        <h6 class="fw-bold mb-3">Leads Recentes</h6>
+        <h6 class="fw-bold mb-3">Leads Recentes ({{ total_leads }} no total)</h6>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
@@ -80,6 +153,7 @@
                         <th>Status</th>
                         <th>Responsavel</th>
                         <th>Criado em</th>
+                        <th>Fechado em</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -87,13 +161,22 @@
                     <tr>
                         <td class="fw-semibold">{{ lead.name }}</td>
                         <td>R$ {{ "%.2f"|format(lead.price) }}</td>
-                        <td><span class="badge bg-primary bg-opacity-10 text-primary">{{ lead.status }}</span></td>
+                        <td>
+                            {% if lead.status_id == STATUS_WON %}
+                            <span class="badge bg-success bg-opacity-10 text-success">{{ lead.status }}</span>
+                            {% elif lead.status_id == STATUS_LOST %}
+                            <span class="badge bg-danger bg-opacity-10 text-danger">{{ lead.status }}</span>
+                            {% else %}
+                            <span class="badge bg-primary bg-opacity-10 text-primary">{{ lead.status }}</span>
+                            {% endif %}
+                        </td>
                         <td>{{ lead.responsible }}</td>
                         <td>{{ lead.created_at }}</td>
+                        <td>{{ lead.closed_at }}</td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="5" class="text-center text-muted">Nenhum lead encontrado</td>
+                        <td colspan="6" class="text-center text-muted">Nenhum lead encontrado</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -105,7 +188,35 @@
 
 {% block extra_js %}
 <script>
-    // Funil de Vendas
+    // --- Filter interactions ---
+    const periodType = document.getElementById('period_type');
+    const closedHint = document.getElementById('closed-hint');
+    const statusesSelect = document.getElementById('statuses');
+    const pipelineSelect = document.getElementById('pipeline');
+
+    function updateClosedHint() {
+        closedHint.style.display = periodType.value === 'closed' ? 'block' : 'none';
+    }
+    updateClosedHint();
+    periodType.addEventListener('change', updateClosedHint);
+
+    // Update statuses when pipeline changes (AJAX)
+    pipelineSelect.addEventListener('change', function() {
+        const pid = this.value;
+        fetch(`/api/statuses?pipeline_id=${pid}`)
+            .then(r => r.json())
+            .then(data => {
+                statusesSelect.innerHTML = '';
+                data.statuses.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.name;
+                    statusesSelect.appendChild(opt);
+                });
+            });
+    });
+
+    // --- Charts ---
     const funnelCtx = document.getElementById('funnelChart').getContext('2d');
     new Chart(funnelCtx, {
         type: 'bar',
@@ -133,7 +244,6 @@
         }
     });
 
-    // Leads por Status
     const statusCtx = document.getElementById('statusChart').getContext('2d');
     new Chart(statusCtx, {
         type: 'doughnut',

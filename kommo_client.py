@@ -103,6 +103,8 @@ class KommoClient:
     def _api_get(self, endpoint, params=None):
         url = f"{self._base_url()}/api/v4{endpoint}"
         resp = requests.get(url, headers=self._get_headers(), params=params)
+        if resp.status_code == 204:
+            return None
         resp.raise_for_status()
         return resp.json()
 
@@ -111,8 +113,49 @@ class KommoClient:
     def get_account(self):
         return self._api_get('/account', params={'with': 'amojo_id'})
 
-    def get_leads(self, limit=250, page=1):
-        return self._api_get('/leads', params={'limit': limit, 'page': page, 'with': 'contacts'})
+    def get_leads(self, limit=250, page=1, pipeline_id=None, statuses=None,
+                  created_from=None, created_to=None,
+                  closed_from=None, closed_to=None):
+        params = {'limit': limit, 'page': page, 'with': 'loss_reason'}
+        if pipeline_id:
+            params['filter[pipeline_id][]'] = pipeline_id
+        if statuses:
+            for s in statuses:
+                params.setdefault('filter[statuses][]', [])
+            # Use repeated params for statuses
+            params['filter[statuses][]'] = statuses
+        if created_from:
+            params['filter[created_at][from]'] = created_from
+        if created_to:
+            params['filter[created_at][to]'] = created_to
+        if closed_from:
+            params['filter[closed_at][from]'] = closed_from
+        if closed_to:
+            params['filter[closed_at][to]'] = closed_to
+        return self._api_get('/leads', params=params)
+
+    def get_all_leads(self, pipeline_id=None, statuses=None,
+                      created_from=None, created_to=None,
+                      closed_from=None, closed_to=None):
+        all_leads = []
+        page = 1
+        while True:
+            data = self.get_leads(
+                limit=250, page=page,
+                pipeline_id=pipeline_id, statuses=statuses,
+                created_from=created_from, created_to=created_to,
+                closed_from=closed_from, closed_to=closed_to,
+            )
+            if not data or '_embedded' not in data:
+                break
+            leads = data['_embedded'].get('leads', [])
+            if not leads:
+                break
+            all_leads.extend(leads)
+            if len(leads) < 250:
+                break
+            page += 1
+        return all_leads
 
     def get_pipelines(self):
         return self._api_get('/leads/pipelines')
@@ -122,6 +165,9 @@ class KommoClient:
 
     def get_users(self):
         return self._api_get('/users')
+
+    def get_loss_reasons(self):
+        return self._api_get('/leads/loss_reasons')
 
     def is_authenticated(self):
         token = self.storage.get_token()
