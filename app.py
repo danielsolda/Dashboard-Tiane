@@ -36,7 +36,9 @@ def callback():
         flash('Codigo de autorizacao nao recebido.', 'danger')
         return redirect(url_for('login'))
 
-    subdomain = request.args.get('referer', kommo.subdomain)
+    referer = request.args.get('referer', kommo.subdomain)
+    # referer pode vir como "tiane.kommo.com" - extrair só o subdomínio
+    subdomain = referer.split('.')[0] if '.' in referer else referer
     try:
         kommo.exchange_code(code, subdomain=subdomain)
         flash('Conectado com sucesso ao Kommo CRM!', 'success')
