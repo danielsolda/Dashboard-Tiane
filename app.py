@@ -1,7 +1,7 @@
 import os
-import time
 from datetime import datetime, timedelta
-from flask import Flask, redirect, url_for, request, render_template, session, flash
+from collections import defaultdict
+from flask import Flask, redirect, url_for, request, render_template, session, flash, jsonify
 from kommo_client import KommoClient
 from token_storage import TokenStorage
 
@@ -15,6 +15,8 @@ kommo = KommoClient(token_storage=storage)
 STATUS_WON = 142
 STATUS_LOST = 143
 
+
+# ─── Auth routes ───
 
 @app.route('/')
 def index():
@@ -40,9 +42,7 @@ def callback():
     if not code:
         flash('Codigo de autorizacao nao recebido.', 'danger')
         return redirect(url_for('login'))
-
     referer = request.args.get('referer', kommo.subdomain)
-    # referer pode vir como "tiane.kommo.com" - extrair só o subdomínio
     subdomain = referer.split('.')[0] if '.' in referer else referer
     try:
         kommo.exchange_code(code, subdomain=subdomain)
@@ -61,11 +61,12 @@ def logout():
     return redirect(url_for('login'))
 
 
-def _build_pipelines_map():
-    """Fetch pipelines and build maps for pipeline names and status names/info."""
+# ─── Data helpers ───
+
+def build_pipelines_map():
     pipelines_data = kommo.get_pipelines()
-    pipelines = {}  # id -> {name, statuses: {id -> {name, sort, type}}}
-    status_map = {}  # status_id -> status_name
+    pipelines = {}
+    status_map = {}
     if pipelines_data and '_embedded' in pipelines_data:
         for p in pipelines_data['_embedded'].get('pipelines', []):
             statuses = {}
@@ -75,6 +76,7 @@ def _build_pipelines_map():
                         'name': s['name'],
                         'sort': s.get('sort', 0),
                         'type': s.get('type', 0),
+                        'pipeline_id': p['id'],
                     }
                     status_map[s['id']] = s['name']
             pipelines[p['id']] = {
@@ -85,7 +87,7 @@ def _build_pipelines_map():
     return pipelines, status_map
 
 
-def _build_users_map():
+def build_users_map():
     users_data = kommo.get_users()
     users = {}
     if users_data and '_embedded' in users_data:
@@ -93,6 +95,27 @@ def _build_users_map():
             users[u['id']] = u['name']
     return users
 
+
+def get_custom_field_values(lead, field_id):
+    """Extract custom field value(s) from a lead."""
+    for cf in lead.get('custom_fields_values') or []:
+        if cf.get('field_id') == field_id:
+            vals = cf.get('values', [])
+            return [v.get('value', '') for v in vals]
+    return []
+
+
+def find_custom_field_id(fields_data, field_name_contains):
+    """Find a custom field ID by partial name match."""
+    if not fields_data or '_embedded' not in fields_data:
+        return None
+    for f in fields_data['_embedded'].get('custom_fields', []):
+        if field_name_contains.lower() in f.get('name', '').lower():
+            return f['id'], f.get('name', ''), f.get('enums')
+    return None
+
+
+# ─── Dashboard route ───
 
 @app.route('/dashboard')
 def dashboard():
@@ -103,91 +126,179 @@ def dashboard():
         account = kommo.get_account()
         account_name = account.get('name', 'Kommo CRM')
 
-        pipelines, status_map = _build_pipelines_map()
-        users = _build_users_map()
+        pipelines, status_map = build_pipelines_map()
+        users = build_users_map()
 
-        # --- Parse filters from query params ---
+        # Discover custom fields for source, lead type, etc.
+        custom_fields_data = kommo.get_custom_fields('leads')
+        source_field = find_custom_field_id(custom_fields_data, 'fonte')
+        lead_type_field = find_custom_field_id(custom_fields_data, 'tipo')
+        interest_field = find_custom_field_id(custom_fields_data, 'momento')
+
+        source_field_id = source_field[0] if source_field else None
+        lead_type_field_id = lead_type_field[0] if lead_type_field else None
+        interest_field_id = interest_field[0] if interest_field else None
+
+        # ─── Parse filters ───
         f_pipeline = request.args.get('pipeline', '')
         f_statuses = request.args.getlist('statuses')
-        f_period_type = request.args.get('period_type', 'created')  # created or closed
+        f_period_type = request.args.get('period_type', 'created')
         f_date_from = request.args.get('date_from', '')
         f_date_to = request.args.get('date_to', '')
 
-        # Convert date strings to timestamps
+        # Build API filter params
+        api_params = {}
+        if f_pipeline:
+            api_params['filter[pipeline_id][]'] = int(f_pipeline)
+        if f_statuses:
+            api_params['filter[statuses][]'] = [int(s) for s in f_statuses]
+
         ts_from = None
         ts_to = None
         if f_date_from:
             ts_from = int(datetime.strptime(f_date_from, '%Y-%m-%d').timestamp())
         if f_date_to:
-            # End of day
             ts_to = int((datetime.strptime(f_date_to, '%Y-%m-%d') + timedelta(days=1)).timestamp()) - 1
 
-        # Build API filter params
-        api_pipeline = int(f_pipeline) if f_pipeline else None
-        api_statuses = [int(s) for s in f_statuses] if f_statuses else None
+        if f_period_type == 'created':
+            if ts_from:
+                api_params['filter[created_at][from]'] = ts_from
+            if ts_to:
+                api_params['filter[created_at][to]'] = ts_to
+        elif f_period_type == 'closed':
+            if ts_from:
+                api_params['filter[closed_at][from]'] = ts_from
+            if ts_to:
+                api_params['filter[closed_at][to]'] = ts_to
+            if not f_statuses:
+                api_params['filter[statuses][]'] = [STATUS_WON, STATUS_LOST]
 
-        created_from = ts_from if f_period_type == 'created' else None
-        created_to = ts_to if f_period_type == 'created' else None
-        closed_from = ts_from if f_period_type == 'closed' else None
-        closed_to = ts_to if f_period_type == 'closed' else None
+        # Fetch all leads
+        leads = kommo.get_all_leads(params=api_params)
 
-        # If period_type is "closed", restrict to won/lost statuses
-        if f_period_type == 'closed' and not api_statuses:
-            api_statuses = [STATUS_WON, STATUS_LOST]
-
-        # Fetch leads with filters (paginated)
-        leads = kommo.get_all_leads(
-            pipeline_id=api_pipeline,
-            statuses=api_statuses,
-            created_from=created_from, created_to=created_to,
-            closed_from=closed_from, closed_to=closed_to,
-        )
-
-        # Calculate metrics
+        # ─── KPIs ───
         total_leads = len(leads)
         total_value = sum(lead.get('price', 0) or 0 for lead in leads)
-        won_leads = sum(1 for lead in leads if lead.get('status_id') == STATUS_WON)
-        lost_leads = sum(1 for lead in leads if lead.get('status_id') == STATUS_LOST)
-        conversion_rate = (won_leads / total_leads * 100) if total_leads > 0 else 0
+        won_leads_list = [l for l in leads if l.get('status_id') == STATUS_WON]
+        lost_leads_list = [l for l in leads if l.get('status_id') == STATUS_LOST]
+        won_count = len(won_leads_list)
+        lost_count = len(lost_leads_list)
+        won_value = sum(l.get('price', 0) or 0 for l in won_leads_list)
+        ticket_medio = (won_value / won_count) if won_count > 0 else 0
+        conversion_rate = (won_count / total_leads * 100) if total_leads > 0 else 0
+        loss_rate = (lost_count / total_leads * 100) if total_leads > 0 else 0
 
-        # Leads by status (for charts)
-        status_counts = {}
+        # ─── Leads by status (funnel chart) ───
+        status_counts = defaultdict(int)
         for lead in leads:
             sid = lead.get('status_id', 0)
             name = status_map.get(sid, f'Status {sid}')
-            status_counts[name] = status_counts.get(name, 0) + 1
+            status_counts[name] += 1
+        funnel_labels = list(status_counts.keys())
+        funnel_values = list(status_counts.values())
 
-        pipeline_labels = list(status_counts.keys())
-        pipeline_values = list(status_counts.values())
+        # ─── Source analysis ───
+        source_counts = defaultdict(int)
+        source_won = defaultdict(int)
+        source_value = defaultdict(float)
+        for lead in leads:
+            src = 'Nao preenchido'
+            if source_field_id:
+                vals = get_custom_field_values(lead, source_field_id)
+                if vals:
+                    src = vals[0]
+            source_counts[src] += 1
+            if lead.get('status_id') == STATUS_WON:
+                source_won[src] += 1
+                source_value[src] += lead.get('price', 0) or 0
+        source_labels = list(source_counts.keys())
+        source_values = list(source_counts.values())
 
-        # Recent leads for table
+        # Source conversion table
+        source_table = []
+        for src in source_counts:
+            cnt = source_counts[src]
+            won = source_won.get(src, 0)
+            val = source_value.get(src, 0)
+            conv = (won / cnt * 100) if cnt > 0 else 0
+            source_table.append({
+                'name': src, 'leads': cnt, 'won': won,
+                'value': val, 'conversion': conv,
+            })
+        source_table.sort(key=lambda x: x['leads'], reverse=True)
+
+        # ─── Lead type analysis ───
+        type_counts = defaultdict(int)
+        for lead in leads:
+            lt = 'Nao preenchido'
+            if lead_type_field_id:
+                vals = get_custom_field_values(lead, lead_type_field_id)
+                if vals:
+                    lt = vals[0]
+            type_counts[lt] += 1
+        type_labels = list(type_counts.keys())
+        type_values = list(type_counts.values())
+
+        # ─── Leads by responsible ───
+        responsible_counts = defaultdict(int)
+        responsible_won = defaultdict(int)
+        for lead in leads:
+            uid = lead.get('responsible_user_id', 0)
+            name = users.get(uid, f'User {uid}')
+            responsible_counts[name] += 1
+            if lead.get('status_id') == STATUS_WON:
+                responsible_won[name] += 1
+        responsible_labels = list(responsible_counts.keys())
+        responsible_values = list(responsible_counts.values())
+
+        # ─── Loss reasons ───
+        loss_reason_counts = defaultdict(int)
+        for lead in lost_leads_list:
+            embedded = lead.get('_embedded', {})
+            loss_reason = embedded.get('loss_reason')
+            if loss_reason:
+                reason_name = loss_reason[0].get('name', 'Sem motivo') if isinstance(loss_reason, list) else loss_reason.get('name', 'Sem motivo')
+            else:
+                reason_name = 'Sem motivo'
+            loss_reason_counts[reason_name] += 1
+        loss_labels = list(loss_reason_counts.keys())
+        loss_values = list(loss_reason_counts.values())
+
+        # ─── Recent leads for table ───
         recent_leads = []
-        for lead in leads[:30]:
+        for lead in leads[:50]:
             created = lead.get('created_at', 0)
             created_str = datetime.fromtimestamp(created).strftime('%d/%m/%Y') if created else '-'
             closed = lead.get('closed_at', 0)
             closed_str = datetime.fromtimestamp(closed).strftime('%d/%m/%Y') if closed else '-'
+
+            src = '-'
+            if source_field_id:
+                vals = get_custom_field_values(lead, source_field_id)
+                if vals:
+                    src = vals[0]
+
             recent_leads.append({
                 'name': lead.get('name', 'Sem nome'),
                 'price': lead.get('price', 0) or 0,
                 'status': status_map.get(lead.get('status_id', 0), '-'),
                 'status_id': lead.get('status_id', 0),
                 'responsible': users.get(lead.get('responsible_user_id', 0), '-'),
+                'source': src,
                 'created_at': created_str,
                 'closed_at': closed_str,
             })
 
-        # Build filter options for the template
+        # ─── Filter options ───
         pipeline_options = []
         for pid, pdata in pipelines.items():
             if pdata.get('is_archive'):
                 continue
             pipeline_options.append({'id': pid, 'name': pdata['name']})
 
-        # Statuses for the selected pipeline (or all if none selected)
         status_options = []
-        if api_pipeline and api_pipeline in pipelines:
-            for sid, sdata in pipelines[api_pipeline]['statuses'].items():
+        if f_pipeline and int(f_pipeline) in pipelines:
+            for sid, sdata in pipelines[int(f_pipeline)]['statuses'].items():
                 status_options.append({'id': sid, 'name': sdata['name'], 'sort': sdata['sort']})
         else:
             seen = set()
@@ -203,20 +314,36 @@ def dashboard():
         return render_template('dashboard.html',
                                authenticated=True,
                                account_name=account_name,
+                               # KPIs
                                total_leads=total_leads,
                                total_value=total_value,
-                               won_leads=won_leads,
-                               lost_leads=lost_leads,
+                               won_count=won_count,
+                               lost_count=lost_count,
+                               won_value=won_value,
+                               ticket_medio=ticket_medio,
                                conversion_rate=conversion_rate,
-                               pipeline_labels=pipeline_labels,
-                               pipeline_values=pipeline_values,
-                               status_labels=pipeline_labels,
-                               status_values=pipeline_values,
+                               loss_rate=loss_rate,
+                               # Funnel
+                               funnel_labels=funnel_labels,
+                               funnel_values=funnel_values,
+                               # Source
+                               source_labels=source_labels,
+                               source_values=source_values,
+                               source_table=source_table,
+                               # Lead type
+                               type_labels=type_labels,
+                               type_values=type_values,
+                               # Responsible
+                               responsible_labels=responsible_labels,
+                               responsible_values=responsible_values,
+                               # Loss reasons
+                               loss_labels=loss_labels,
+                               loss_values=loss_values,
+                               # Table
                                recent_leads=recent_leads,
-                               # Filter options
+                               # Filters
                                pipeline_options=pipeline_options,
                                status_options=status_options,
-                               # Current filter values
                                f_pipeline=f_pipeline,
                                f_statuses=f_statuses,
                                f_period_type=f_period_type,
@@ -231,11 +358,10 @@ def dashboard():
 
 @app.route('/api/statuses')
 def api_statuses():
-    """Return statuses for a given pipeline (AJAX endpoint)."""
     if not kommo.is_authenticated():
-        return {'error': 'not authenticated'}, 401
+        return jsonify({'error': 'not authenticated'}), 401
     pipeline_id = request.args.get('pipeline_id', '')
-    pipelines, _ = _build_pipelines_map()
+    pipelines, _ = build_pipelines_map()
     statuses = []
     if pipeline_id and int(pipeline_id) in pipelines:
         for sid, sdata in pipelines[int(pipeline_id)]['statuses'].items():
@@ -250,7 +376,7 @@ def api_statuses():
                     statuses.append({'id': sid, 'name': sdata['name'], 'sort': sdata['sort']})
                     seen.add(sid)
     statuses.sort(key=lambda x: x['sort'])
-    return {'statuses': statuses}
+    return jsonify({'statuses': statuses})
 
 
 if __name__ == '__main__':
