@@ -47,7 +47,7 @@
     <span class="text-muted small"><i class="bi bi-person-circle"></i> {{ account_name }}</span>
 </div>
 
-<!-- Filtro -->
+<!-- Filtro (por data de criacao) -->
 <form method="get" action="{{ url_for('dashboard') }}" class="filter-bar mb-4">
     <div class="row g-2 align-items-end">
         <div class="col">
@@ -68,27 +68,17 @@
             </select>
         </div>
         <div class="col">
-            <label>Periodo</label>
-            <select name="period_type" id="period_type" class="form-select form-select-sm">
-                <option value="created" {% if f_period_type == 'created' %}selected{% endif %}>Criados</option>
-                <option value="closed" {% if f_period_type == 'closed' %}selected{% endif %}>Fechados</option>
-            </select>
+            <label>Criado de</label>
+            <input type="date" name="date_from" class="form-control form-control-sm" value="{{ f_date_from }}">
         </div>
         <div class="col">
-            <label>De</label>
-            <input type="date" name="date_from" id="date_from" class="form-control form-control-sm" value="{{ f_date_from }}">
-        </div>
-        <div class="col">
-            <label>Ate</label>
-            <input type="date" name="date_to" id="date_to" class="form-control form-control-sm" value="{{ f_date_to }}">
+            <label>Criado ate</label>
+            <input type="date" name="date_to" class="form-control form-control-sm" value="{{ f_date_to }}">
         </div>
         <div class="col-auto d-flex gap-1">
             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Filtrar</button>
             <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i></a>
         </div>
-    </div>
-    <div id="closed-hint" class="mt-2 text-muted small" style="display: none;">
-        <i class="bi bi-info-circle"></i> "Fechados" filtra apenas Venda Ganha ou Venda Perdida.
     </div>
 </form>
 
@@ -106,10 +96,18 @@
     <div class="col-6 col-lg-3">
         <div class="card kpi-card">
             <div class="card-body">
+                <i class="bi bi-hourglass-split kpi-icon"></i>
+                <div class="kpi-label">Em Aberto</div>
+                <div class="kpi-value text-warning">{{ open_count }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card kpi-card">
+            <div class="card-body">
                 <i class="bi bi-trophy kpi-icon"></i>
-                <div class="kpi-label">Vendas Ganhas</div>
+                <div class="kpi-label">Ganhos</div>
                 <div class="kpi-value text-success">{{ won_count }}</div>
-                <small class="text-muted">R$ {{ "{:,.2f}".format(won_value).replace(",", "X").replace(".", ",").replace("X", ".") }}</small>
             </div>
         </div>
     </div>
@@ -117,53 +115,8 @@
         <div class="card kpi-card">
             <div class="card-body">
                 <i class="bi bi-x-circle kpi-icon"></i>
-                <div class="kpi-label">Vendas Perdidas</div>
+                <div class="kpi-label">Perdidos</div>
                 <div class="kpi-value text-danger">{{ lost_count }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card kpi-card">
-            <div class="card-body">
-                <i class="bi bi-graph-up-arrow kpi-icon"></i>
-                <div class="kpi-label">Taxa de Conversao</div>
-                <div class="kpi-value text-info">{{ "%.1f"|format(conversion_rate) }}%</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card kpi-card">
-            <div class="card-body">
-                <i class="bi bi-cash-stack kpi-icon"></i>
-                <div class="kpi-label">Ticket Medio</div>
-                <div class="kpi-value">R$ {{ "{:,.2f}".format(ticket_medio).replace(",", "X").replace(".", ",").replace("X", ".") }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card kpi-card">
-            <div class="card-body">
-                <i class="bi bi-currency-dollar kpi-icon"></i>
-                <div class="kpi-label">Valor Total</div>
-                <div class="kpi-value">R$ {{ "{:,.2f}".format(total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card kpi-card">
-            <div class="card-body">
-                <i class="bi bi-hourglass-split kpi-icon"></i>
-                <div class="kpi-label">Leads em Aberto</div>
-                <div class="kpi-value text-warning">{{ total_leads - won_count - lost_count }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card kpi-card">
-            <div class="card-body">
-                <i class="bi bi-percent kpi-icon"></i>
-                <div class="kpi-label">Taxa de Perda</div>
-                <div class="kpi-value text-danger">{{ "%.1f"|format(loss_rate) }}%</div>
             </div>
         </div>
     </div>
@@ -251,63 +204,12 @@
     </div>
 </div>
 
-<!-- Responsavel + Motivos de Perda -->
-<div class="row g-4 mb-4">
-    <div class="col-lg-6">
-        <div class="card chart-card h-100">
-            <div class="card-body">
-                <div class="chart-title"><i class="bi bi-person-workspace"></i> Por Responsavel</div>
-                <div style="position: relative; height: 260px;">
-                    <canvas id="responsibleChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-6">
-        <div class="card chart-card h-100">
-            <div class="card-body">
-                <div class="chart-title"><i class="bi bi-emoji-frown"></i> Motivos de Perda</div>
-                <div style="position: relative; height: 260px;">
-                    <canvas id="lossChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Conversao por Fonte -->
+<!-- Responsavel -->
 <div class="card chart-card mb-4">
     <div class="card-body">
-        <div class="chart-title"><i class="bi bi-table"></i> Conversao por Fonte</div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0 source-table">
-                <thead class="table-light">
-                    <tr>
-                        <th>Fonte</th>
-                        <th class="text-center">Leads</th>
-                        <th class="text-center">Ganhos</th>
-                        <th class="text-end">Valor Ganho</th>
-                        <th class="text-center">Conversao</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in source_table %}
-                    <tr>
-                        <td class="fw-semibold">{{ row.name }}</td>
-                        <td class="text-center">{{ row.leads }}</td>
-                        <td class="text-center"><span class="badge bg-success bg-opacity-10 text-success">{{ row.won }}</span></td>
-                        <td class="text-end">R$ {{ "{:,.2f}".format(row.value).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
-                        <td class="text-center">
-                            <div class="progress" style="height: 18px; min-width: 80px;">
-                                <div class="progress-bar bg-success" style="width: {{ row.conversion }}%">{{ "%.1f"|format(row.conversion) }}%</div>
-                            </div>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="5" class="text-center text-muted">Sem dados</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="chart-title"><i class="bi bi-person-workspace"></i> Por Responsavel</div>
+        <div style="position: relative; height: 260px;">
+            <canvas id="responsibleChart"></canvas>
         </div>
     </div>
 </div>
@@ -388,13 +290,6 @@
             : '<i class="bi bi-chevron-down"></i> Ver todos ({{ recent_leads|length }})';
     }
 
-    // Filter hints
-    const periodType = document.getElementById('period_type');
-    const closedHint = document.getElementById('closed-hint');
-    function updateHint() { closedHint.style.display = periodType.value === 'closed' ? 'block' : 'none'; }
-    updateHint();
-    periodType.addEventListener('change', updateHint);
-
     document.getElementById('pipeline').addEventListener('change', function() {
         fetch(`/api/statuses?pipeline_id=${this.value}`)
             .then(r => r.json())
@@ -463,12 +358,6 @@
         type: 'bar',
         data: { labels: {{ responsible_labels|tojson }}, datasets: [{ data: {{ responsible_values|tojson }}, backgroundColor: '#3b82f6', borderRadius: 4, borderSkipped: false }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-    });
-
-    new Chart(document.getElementById('lossChart'), {
-        type: 'doughnut',
-        data: { labels: {{ loss_labels|tojson }}, datasets: [{ data: {{ loss_values|tojson }}, backgroundColor: ['#ef4444','#f97316','#f59e0b','#64748b','#8b5cf6','#06b6d4'], borderWidth: 0 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } } }
     });
 </script>
 {% endblock %}

@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block title %}Vendas / Perdidos{% endblock %}
+
+{% block extra_css %}
+<style>
+    .filter-bar {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        padding: 1rem 1.5rem;
+    }
+    .filter-bar label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.25rem;
+    }
+    .filter-bar .form-select, .filter-bar .form-control {
+        font-size: 0.85rem;
+    }
+    .kpi-icon { font-size: 1.4rem; opacity: 0.25; position: absolute; top: 1rem; right: 1.2rem; }
+    .kpi-card .card-body { position: relative; padding: 1.25rem; }
+    .kpi-value { font-size: 1.75rem; }
+    .kpi-label { font-size: 0.75rem; }
+    .chart-card .card-body { padding: 1.25rem; }
+    .chart-title { font-size: 0.875rem; font-weight: 700; color: #334155; margin-bottom: 0.75rem; }
+    .source-table th { font-size: 0.75rem; text-transform: uppercase; color: #64748b; letter-spacing: 0.03em; }
+    .source-table td { font-size: 0.875rem; }
+    .leads-table th { font-size: 0.75rem; text-transform: uppercase; color: #64748b; letter-spacing: 0.03em; }
+    .leads-table td { font-size: 0.85rem; }
+    .btn-expand { border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; font-size: 0.85rem; }
+    .btn-expand:hover { background: #e2e8f0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0">Vendas / Perdidos</h5>
+    <span class="text-muted small"><i class="bi bi-person-circle"></i> {{ account_name }}</span>
+</div>
+
+<!-- Filtro (closed_at) -->
+<form method="get" action="{{ url_for('vendas') }}" class="filter-bar mb-4">
+    <div class="row g-2 align-items-end">
+        <div class="col">
+            <label>Funil</label>
+            <select name="pipeline" id="pipeline" class="form-select form-select-sm">
+                <option value="">Todos</option>
+                {% for p in pipeline_options %}
+                <option value="{{ p.id }}" {% if f_pipeline == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col">
+            <label>Fechado de</label>
+            <input type="date" name="date_from" class="form-control form-control-sm" value="{{ f_date_from }}">
+        </div>
+        <div class="col">
+            <label>Fechado ate</label>
+            <input type="date" name="date_to" class="form-control form-control-sm" value="{{ f_date_to }}">
+        </div>
+        <div class="col-auto d-flex gap-1">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Filtrar</button>
+            <a href="{{ url_for('vendas') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i></a>
+        </div>
+    </div>
+    <div class="mt-2 text-muted small">
+        <i class="bi bi-info-circle"></i> Filtra por data de fechamento (Venda Ganha ou Venda Perdida).
+    </div>
+</form>
+
+<!-- KPIs -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <i class="bi bi-trophy kpi-icon"></i>
+                <div class="kpi-label">Vendas Ganhas</div>
+                <div class="kpi-value text-success">{{ won_count }}</div>
+                <small class="text-muted">R$ {{ "{:,.2f}".format(won_value).replace(",", "X").replace(".", ",").replace("X", ".") }}</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <i class="bi bi-x-circle kpi-icon"></i>
+                <div class="kpi-label">Vendas Perdidas</div>
+                <div class="kpi-value text-danger">{{ lost_count }}</div>
+                <small class="text-muted">R$ {{ "{:,.2f}".format(lost_value).replace(",", "X").replace(".", ",").replace("X", ".") }}</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <i class="bi bi-graph-up-arrow kpi-icon"></i>
+                <div class="kpi-label">Taxa de Conversao</div>
+                <div class="kpi-value text-info">{{ "%.1f"|format(conversion_rate) }}%</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <i class="bi bi-cash-stack kpi-icon"></i>
+                <div class="kpi-label">Ticket Medio</div>
+                <div class="kpi-value">R$ {{ "{:,.2f}".format(ticket_medio).replace(",", "X").replace(".", ",").replace("X", ".") }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Responsavel Ganhos vs Perdidos + Motivos de Perda -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card chart-card h-100">
+            <div class="card-body">
+                <div class="chart-title"><i class="bi bi-person-workspace"></i> Responsavel - Ganhos vs Perdidos</div>
+                <div style="position: relative; height: 280px;">
+                    <canvas id="respChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card chart-card h-100">
+            <div class="card-body">
+                <div class="chart-title"><i class="bi bi-emoji-frown"></i> Motivos de Perda</div>
+                <div style="position: relative; height: 280px;">
+                    <canvas id="lossChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Conversao por Fonte -->
+<div class="card chart-card mb-4">
+    <div class="card-body">
+        <div class="chart-title"><i class="bi bi-geo-alt"></i> Conversao por Fonte</div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 source-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>Fonte</th>
+                        <th class="text-center">Total</th>
+                        <th class="text-center">Ganhos</th>
+                        <th class="text-end">Valor Ganho</th>
+                        <th class="text-center">Conversao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in source_table %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.name }}</td>
+                        <td class="text-center">{{ row.leads }}</td>
+                        <td class="text-center"><span class="badge bg-success bg-opacity-10 text-success">{{ row.won }}</span></td>
+                        <td class="text-end">R$ {{ "{:,.2f}".format(row.value).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
+                        <td class="text-center">
+                            <div class="progress" style="height: 18px; min-width: 80px;">
+                                <div class="progress-bar bg-success" style="width: {{ row.conversion }}%">{{ "%.1f"|format(row.conversion) }}%</div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center text-muted">Sem dados</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Conversao por Cidade -->
+<div class="card chart-card mb-4">
+    <div class="card-body">
+        <div class="chart-title"><i class="bi bi-geo-alt-fill"></i> Conversao por Cidade</div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 source-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>Cidade</th>
+                        <th class="text-center">Total</th>
+                        <th class="text-center">Ganhos</th>
+                        <th class="text-center">Conversao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in city_table %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.name }}</td>
+                        <td class="text-center">{{ row.total }}</td>
+                        <td class="text-center"><span class="badge bg-success bg-opacity-10 text-success">{{ row.won }}</span></td>
+                        <td class="text-center">
+                            <div class="progress" style="height: 18px; min-width: 80px;">
+                                <div class="progress-bar bg-info" style="width: {{ row.conversion }}%">{{ "%.1f"|format(row.conversion) }}%</div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center text-muted">Sem dados</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Leads Fechados -->
+<div class="card chart-card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="chart-title mb-0"><i class="bi bi-list-ul"></i> Leads Fechados ({{ total }})</div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 leads-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nome</th>
+                        <th>Valor</th>
+                        <th>Status</th>
+                        <th>Fonte</th>
+                        <th>Cidade</th>
+                        <th>Local</th>
+                        <th>Responsavel</th>
+                        <th>Fechado</th>
+                    </tr>
+                </thead>
+                <tbody id="leadsBody">
+                    {% for lead in recent_leads %}
+                    <tr class="lead-row" {% if loop.index > 10 %}style="display:none"{% endif %}>
+                        <td class="fw-semibold">{{ lead.name }}</td>
+                        <td>R$ {{ "%.2f"|format(lead.price) }}</td>
+                        <td>
+                            {% if lead.status_id == STATUS_WON %}
+                            <span class="badge bg-success bg-opacity-10 text-success">{{ lead.status }}</span>
+                            {% elif lead.status_id == STATUS_LOST %}
+                            <span class="badge bg-danger bg-opacity-10 text-danger">{{ lead.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ lead.source }}</td>
+                        <td>{{ lead.city }}</td>
+                        <td class="text-truncate" style="max-width: 150px;" title="{{ lead.venue }}">{{ lead.venue }}</td>
+                        <td>{{ lead.responsible }}</td>
+                        <td>{{ lead.closed_at }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted">Nenhum lead encontrado</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if recent_leads|length > 10 %}
+        <div class="text-center mt-3">
+            <button id="btnExpandLeads" class="btn btn-expand btn-sm px-4" onclick="toggleLeads()">
+                <i class="bi bi-chevron-down"></i> Ver todos ({{ recent_leads|length }})
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#6366f1','#14b8a6','#f97316','#a855f7','#64748b'];
+
+    // Expand/collapse leads
+    let leadsExpanded = false;
+    function toggleLeads() {
+        leadsExpanded = !leadsExpanded;
+        document.querySelectorAll('.lead-row').forEach((row, i) => {
+            if (i >= 10) row.style.display = leadsExpanded ? '' : 'none';
+        });
+        const btn = document.getElementById('btnExpandLeads');
+        btn.innerHTML = leadsExpanded
+            ? '<i class="bi bi-chevron-up"></i> Mostrar menos'
+            : '<i class="bi bi-chevron-down"></i> Ver todos ({{ recent_leads|length }})';
+    }
+
+    // Responsible won vs lost (stacked bar)
+    new Chart(document.getElementById('respChart'), {
+        type: 'bar',
+        data: {
+            labels: {{ resp_labels|tojson }},
+            datasets: [
+                { label: 'Ganhos', data: {{ resp_won_values|tojson }}, backgroundColor: '#10b981', borderRadius: 4, borderSkipped: false },
+                { label: 'Perdidos', data: {{ resp_lost_values|tojson }}, backgroundColor: '#ef4444', borderRadius: 4, borderSkipped: false }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top', labels: { font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } },
+            scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9' } } }
+        }
+    });
+
+    // Loss reasons
+    new Chart(document.getElementById('lossChart'), {
+        type: 'doughnut',
+        data: { labels: {{ loss_labels|tojson }}, datasets: [{ data: {{ loss_values|tojson }}, backgroundColor: ['#ef4444','#f97316','#f59e0b','#64748b','#8b5cf6','#06b6d4'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } } }
+    });
+</script>
+{% endblock %}
