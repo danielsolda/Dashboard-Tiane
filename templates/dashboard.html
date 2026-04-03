@@ -203,7 +203,55 @@
     </div>
 </div>
 
-<!-- Responsavel + Motivos de Perda (side by side) -->
+<!-- Cidade + Momentos de Interesse -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card chart-card h-100">
+            <div class="card-body">
+                <div class="chart-title"><i class="bi bi-geo-alt-fill"></i> Cidade</div>
+                <div style="position: relative; height: 260px;">
+                    <canvas id="cityChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card chart-card h-100">
+            <div class="card-body">
+                <div class="chart-title"><i class="bi bi-calendar-heart"></i> Momentos de Interesse</div>
+                <div style="position: relative; height: 260px;">
+                    <canvas id="interestChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sonorizacao + Decisores -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card chart-card h-100">
+            <div class="card-body">
+                <div class="chart-title"><i class="bi bi-music-note-beamed"></i> Sonorizacao</div>
+                <div style="position: relative; height: 260px;">
+                    <canvas id="soundChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card chart-card h-100">
+            <div class="card-body">
+                <div class="chart-title"><i class="bi bi-people-fill"></i> Decisores no Momento Online</div>
+                <div style="position: relative; height: 260px;">
+                    <canvas id="decisorChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Responsavel + Motivos de Perda -->
 <div class="row g-4 mb-4">
     <div class="col-lg-6">
         <div class="card chart-card h-100">
@@ -278,6 +326,9 @@
                         <th>Valor</th>
                         <th>Status</th>
                         <th>Fonte</th>
+                        <th>Cidade</th>
+                        <th>Local</th>
+                        <th>Data Evento</th>
                         <th>Responsavel</th>
                         <th>Criado</th>
                     </tr>
@@ -297,11 +348,14 @@
                             {% endif %}
                         </td>
                         <td>{{ lead.source }}</td>
+                        <td>{{ lead.city }}</td>
+                        <td class="text-truncate" style="max-width: 150px;" title="{{ lead.venue }}">{{ lead.venue }}</td>
+                        <td>{{ lead.event_date }}</td>
                         <td>{{ lead.responsible }}</td>
                         <td>{{ lead.created_at }}</td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" class="text-center text-muted">Nenhum lead encontrado</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted">Nenhum lead encontrado</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -378,6 +432,30 @@
     new Chart(document.getElementById('typeChart'), {
         type: 'doughnut',
         data: { labels: {{ type_labels|tojson }}, datasets: [{ data: {{ type_values|tojson }}, backgroundColor: ['#3b82f6','#ec4899','#f59e0b','#10b981','#8b5cf6','#06b6d4'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } } }
+    });
+
+    new Chart(document.getElementById('cityChart'), {
+        type: 'bar',
+        data: { labels: {{ city_labels|tojson }}, datasets: [{ data: {{ city_values|tojson }}, backgroundColor: '#06b6d4', borderRadius: 4, borderSkipped: false }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false }, ticks: { font: { size: 10 } } } } }
+    });
+
+    new Chart(document.getElementById('interestChart'), {
+        type: 'doughnut',
+        data: { labels: {{ interest_labels|tojson }}, datasets: [{ data: {{ interest_values|tojson }}, backgroundColor: COLORS, borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } } }
+    });
+
+    new Chart(document.getElementById('soundChart'), {
+        type: 'doughnut',
+        data: { labels: {{ sound_labels|tojson }}, datasets: [{ data: {{ sound_values|tojson }}, backgroundColor: ['#8b5cf6','#f59e0b','#10b981','#ef4444','#3b82f6','#ec4899'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } } }
+    });
+
+    new Chart(document.getElementById('decisorChart'), {
+        type: 'doughnut',
+        data: { labels: {{ decisor_labels|tojson }}, datasets: [{ data: {{ decisor_values|tojson }}, backgroundColor: ['#10b981','#ef4444','#64748b','#f59e0b'], borderWidth: 0 }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } } } }
     });
 

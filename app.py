@@ -134,10 +134,20 @@ def dashboard():
         source_field = find_custom_field_id(custom_fields_data, 'fonte')
         lead_type_field = find_custom_field_id(custom_fields_data, 'tipo')
         interest_field = find_custom_field_id(custom_fields_data, 'momento')
+        city_field = find_custom_field_id(custom_fields_data, 'cidade')
+        sound_field = find_custom_field_id(custom_fields_data, 'sonori')
+        decisor_field = find_custom_field_id(custom_fields_data, 'decisor')
+        venue_field = find_custom_field_id(custom_fields_data, 'local')
+        event_date_field = find_custom_field_id(custom_fields_data, 'data do evento')
 
         source_field_id = source_field[0] if source_field else None
         lead_type_field_id = lead_type_field[0] if lead_type_field else None
         interest_field_id = interest_field[0] if interest_field else None
+        city_field_id = city_field[0] if city_field else None
+        sound_field_id = sound_field[0] if sound_field else None
+        decisor_field_id = decisor_field[0] if decisor_field else None
+        venue_field_id = venue_field[0] if venue_field else None
+        event_date_field_id = event_date_field[0] if event_date_field else None
 
         # ─── Parse filters ───
         f_pipeline = request.args.get('pipeline', '')
@@ -264,6 +274,54 @@ def dashboard():
         loss_labels = list(loss_reason_counts.keys())
         loss_values = list(loss_reason_counts.values())
 
+        # ─── City analysis ───
+        city_counts = defaultdict(int)
+        for lead in leads:
+            city = 'Nao preenchido'
+            if city_field_id:
+                vals = get_custom_field_values(lead, city_field_id)
+                if vals:
+                    city = vals[0]
+            city_counts[city] += 1
+        city_labels = list(city_counts.keys())
+        city_values = list(city_counts.values())
+
+        # ─── Sonorização analysis ───
+        sound_counts = defaultdict(int)
+        for lead in leads:
+            snd = 'Nao preenchido'
+            if sound_field_id:
+                vals = get_custom_field_values(lead, sound_field_id)
+                if vals:
+                    snd = vals[0]
+            sound_counts[snd] += 1
+        sound_labels = list(sound_counts.keys())
+        sound_values = list(sound_counts.values())
+
+        # ─── Momentos de Interesse analysis ───
+        interest_counts = defaultdict(int)
+        for lead in leads:
+            mi = 'Nao preenchido'
+            if interest_field_id:
+                vals = get_custom_field_values(lead, interest_field_id)
+                if vals:
+                    mi = vals[0]
+            interest_counts[mi] += 1
+        interest_labels = list(interest_counts.keys())
+        interest_values = list(interest_counts.values())
+
+        # ─── Decisores analysis ───
+        decisor_counts = defaultdict(int)
+        for lead in leads:
+            dec = 'Nao preenchido'
+            if decisor_field_id:
+                vals = get_custom_field_values(lead, decisor_field_id)
+                if vals:
+                    dec = vals[0]
+            decisor_counts[dec] += 1
+        decisor_labels = list(decisor_counts.keys())
+        decisor_values = list(decisor_counts.values())
+
         # ─── Recent leads for table ───
         recent_leads = []
         for lead in leads[:50]:
@@ -278,6 +336,28 @@ def dashboard():
                 if vals:
                     src = vals[0]
 
+            city = '-'
+            if city_field_id:
+                vals = get_custom_field_values(lead, city_field_id)
+                if vals:
+                    city = vals[0]
+
+            venue = '-'
+            if venue_field_id:
+                vals = get_custom_field_values(lead, venue_field_id)
+                if vals:
+                    venue = vals[0]
+
+            event_date = '-'
+            if event_date_field_id:
+                vals = get_custom_field_values(lead, event_date_field_id)
+                if vals and vals[0]:
+                    try:
+                        ts = int(vals[0])
+                        event_date = datetime.fromtimestamp(ts).strftime('%d/%m/%Y')
+                    except (ValueError, TypeError):
+                        event_date = str(vals[0])
+
             recent_leads.append({
                 'name': lead.get('name', 'Sem nome'),
                 'price': lead.get('price', 0) or 0,
@@ -285,6 +365,9 @@ def dashboard():
                 'status_id': lead.get('status_id', 0),
                 'responsible': users.get(lead.get('responsible_user_id', 0), '-'),
                 'source': src,
+                'city': city,
+                'venue': venue,
+                'event_date': event_date,
                 'created_at': created_str,
                 'closed_at': closed_str,
             })
@@ -339,6 +422,15 @@ def dashboard():
                                # Loss reasons
                                loss_labels=loss_labels,
                                loss_values=loss_values,
+                               # Custom fields
+                               city_labels=city_labels,
+                               city_values=city_values,
+                               sound_labels=sound_labels,
+                               sound_values=sound_values,
+                               interest_labels=interest_labels,
+                               interest_values=interest_values,
+                               decisor_labels=decisor_labels,
+                               decisor_values=decisor_values,
                                # Table
                                recent_leads=recent_leads,
                                # Filters
